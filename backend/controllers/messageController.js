@@ -117,6 +117,11 @@ export const editMessage = async (req, res, next) => {
       return res.status(403).json({ success: false, message: 'Unauthorized to edit this message' });
     }
 
+    const group = await Group.findOne({ _id: message.group, members: req.user._id });
+    if (!group) {
+      return res.status(403).json({ success: false, message: 'You are no longer a member of this group.' });
+    }
+
     if (message.isDeleted) {
       return res.status(400).json({ success: false, message: 'Cannot edit a deleted message' });
     }
@@ -145,6 +150,11 @@ export const deleteMessage = async (req, res, next) => {
       return res.status(403).json({ success: false, message: 'Unauthorized to delete this message' });
     }
 
+    const group = await Group.findOne({ _id: message.group, members: req.user._id });
+    if (!group) {
+      return res.status(403).json({ success: false, message: 'You are no longer a member of this group.' });
+    }
+
     // Soft deletion paradigm
     message.isDeleted = true;
     message.text = 'This message was deleted';
@@ -162,6 +172,12 @@ export const deleteMessage = async (req, res, next) => {
 export const markGroupMessagesAsRead = async (req, res, next) => {
   try {
     const { groupId } = req.params;
+
+    const group = await Group.findOne({ _id: groupId, members: req.user._id });
+    if (!group) {
+      return res.status(403).json({ success: false, message: 'Access forbidden: Not a group member.' });
+    }
+
     const latestMessage = await Message.findOne({ group: groupId }).sort({ createdAt: -1 });
 
     const readState = await ReadState.findOneAndUpdate(
@@ -184,14 +200,22 @@ export const searchGroupMessages = async (req, res, next) => {
     const { groupId } = req.params;
     const { q } = req.query;
 
+    const group = await Group.findOne({ _id: groupId, members: req.user._id });
+    if (!group) {
+      return res.status(403).json({ success: false, message: 'Access forbidden: Not a group member.' });
+    }
+
     if (!q || q.trim() === '') {
       return res.status(200).json({ success: true, data: [] });
     }
 
+    // Escape regex metacharacters so user input is matched literally (no ReDoS / pattern injection)
+    const escaped = q.trim().slice(0, 100).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
     const messages = await Message.find({
       group: groupId,
       isDeleted: false,
-      text: { $regex: q.trim(), $options: 'i' },
+      text: { $regex: escaped, $options: 'i' },
     })
       .sort({ createdAt: -1 })
       .limit(30)

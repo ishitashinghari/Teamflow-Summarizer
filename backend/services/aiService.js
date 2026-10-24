@@ -38,7 +38,7 @@ export const generateGroupSummary = async (groupName, messagesData) => {
           m.isDeleted ? '[Message Deleted]' : m.text || (m.fileName ? `[File: ${m.fileName}]` : '')
         }`
     )
-    .join('\\n');
+    .join('\n');
 
   const systemPrompt = `You are TeamFlow AI, an intelligent executive assistant for team collaboration.
 Your task is to analyze and summarize the provided unread messages from group "${groupName}".
@@ -57,7 +57,7 @@ CRITICAL INSTRUCTIONS & SAFETY RULES:
 
   const messagesPayload = [
     { role: 'system', content: systemPrompt },
-    { role: 'user', content: `Unread Chat Transcript (${messagesData.length} messages):\\n\\n${formattedTranscript}` },
+    { role: 'user', content: `Unread Chat Transcript (${messagesData.length} messages):\n\n${formattedTranscript}` },
   ];
 
   return await executeChatCompletion(messagesPayload, 0.2);

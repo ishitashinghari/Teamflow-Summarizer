@@ -1,5 +1,7 @@
 import admin from '../config/firebase.js';
 import User from '../models/User.js';
+import Group from '../models/Group.js';
+import Message from '../models/Message.js';
 
 // In-Memory Presence Registry: Map<userId, Set<socketId>>
 const onlinePresence = new Map();
@@ -41,9 +43,26 @@ export const registerSocketHandlers = (io) => {
     // Broadcast updated active presence roster
     io.emit('presence:update', Array.from(onlinePresence.keys()));
 
-    // Room Subscription
-    socket.on('group:join', (groupId) => {
-      socket.join(`group:${groupId}`);
+    const inRoom = (groupId) => socket.rooms.has(`group:${groupId}`);
+
+    // Loads a saved message and returns it only if this socket's user sent it
+    // and still belongs to its group. Relays use the DB copy, never the client payload.
+    const loadOwnMessage = async (messageId) => {
+      if (!messageId) return null;
+      const message = await Message.findById(messageId).populate('sender', 'name username profilePicture');
+      if (!message || message.sender._id.toString() !== userId) return null;
+      const isMember = await Group.exists({ _id: message.group, members: userId });
+      return isMember ? message : null;
+    };
+
+    // Room Subscription (members only)
+    socket.on('group:join', async (groupId) => {
+      try {
+        const isMember = await Group.exists({ _id: groupId, members: userId });
+        if (isMember) socket.join(`group:${groupId}`);
+      } catch (err) {
+        console.error('[Socket group:join Error]:', err.message);
+      }
     });
 
     socket.on('group:leave', (groupId) => {
@@ -51,26 +70,36 @@ export const registerSocketHandlers = (io) => {
     });
 
     // Real-Time Messaging Relay
-    socket.on('message:send', (messagePayload) => {
-      if (messagePayload?.group) {
-        socket.to(`group:${messagePayload.group}`).emit('message:received', messagePayload);
+    socket.on('message:send', async (payload) => {
+      try {
+        const message = await loadOwnMessage(payload?._id);
+        if (message) socket.to(`group:${message.group}`).emit('message:received', message.toObject());
+      } catch (err) {
+        console.error('[Socket message:send Error]:', err.message);
       }
     });
 
-    socket.on('message:edited', (updatedMessage) => {
-      if (updatedMessage?.group) {
-        io.to(`group:${updatedMessage.group}`).emit('message:updated', updatedMessage);
+    socket.on('message:edited', async (payload) => {
+      try {
+        const message = await loadOwnMessage(payload?._id);
+        if (message) io.to(`group:${message.group}`).emit('message:updated', message.toObject());
+      } catch (err) {
+        console.error('[Socket message:edited Error]:', err.message);
       }
     });
 
-    socket.on('message:deleted', (deletedMessage) => {
-      if (deletedMessage?.group) {
-        io.to(`group:${deletedMessage.group}`).emit('message:removed', deletedMessage);
+    socket.on('message:deleted', async (payload) => {
+      try {
+        const message = await loadOwnMessage(payload?._id);
+        if (message) io.to(`group:${message.group}`).emit('message:removed', message.toObject());
+      } catch (err) {
+        console.error('[Socket message:deleted Error]:', err.message);
       }
     });
 
-    // Typing Indicators
-    socket.on('typing:start', ({ groupId, username, name }) => {
+    // Typing Indicators (only into rooms this socket has joined)
+    socket.on('typing:start', ({ groupId, username, name } = {}) => {
+      if (!inRoom(groupId)) return;
       socket.to(`group:${groupId}`).emit('typing:indicator', {
         groupId,
         userId,
@@ -80,7 +109,8 @@ export const registerSocketHandlers = (io) => {
       });
     });
 
-    socket.on('typing:stop', ({ groupId }) => {
+    socket.on('typing:stop', ({ groupId } = {}) => {
+      if (!inRoom(groupId)) return;
       socket.to(`group:${groupId}`).emit('typing:indicator', {
         groupId,
         userId,

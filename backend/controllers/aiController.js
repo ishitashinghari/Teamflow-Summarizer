@@ -18,10 +18,11 @@ export const summarizeUnreadMessages = async (req, res, next) => {
     let unreadMessages = [];
 
     // FIX: If the frontend provides the unread count from before the user entered, use it!
-    if (localUnreadCount && localUnreadCount > 0) {
+    const requestedCount = Math.min(parseInt(localUnreadCount, 10) || 0, 100);
+    if (requestedCount > 0) {
       unreadMessages = await Message.find({ group: groupId })
         .sort({ createdAt: -1 }) // Get the latest messages
-        .limit(localUnreadCount) // Only grab the amount that were unread
+        .limit(requestedCount) // Only grab the amount that were unread (capped at 100)
         .populate('sender', 'name username')
         .lean();
       
