@@ -2,6 +2,16 @@ import crypto from 'crypto';
 import Group from '../models/Group.js';
 import ReadState from '../models/ReadState.js';
 import Message from '../models/Message.js';
+import { uploadToCloudinary } from '../services/cloudinaryService.js';
+
+const populateGroup = (id) =>
+  Group.findById(id)
+    .populate('owner', 'name username profilePicture')
+    .populate('members', 'name username profilePicture statusMessage lastActive');
+
+const isGroupAdmin = (group, userId) =>
+  group.owner.toString() === userId.toString() ||
+  group.admins.some((a) => a.toString() === userId.toString());
 
 export const createGroup = async (req, res, next) => {
   try {
@@ -26,7 +36,7 @@ export const createGroup = async (req, res, next) => {
     const welcomeMsg = await Message.create({
       group: group._id,
       sender: req.user._id,
-      text: `${req.user.name} created the team "${group.name}".`,
+      text: `${req.user.name} created the group "${group.name}".`,
       messageType: 'system',
     });
 
@@ -55,6 +65,9 @@ export const getUserGroups = async (req, res, next) => {
       .populate('members', 'name username profilePicture statusMessage lastActive')
       .sort({ lastMessageAt: -1 })
       .lean();
+    //Without lean() - Give me a Mongoose document that I might work with.
+    //With lean() - I'm just reading this data. Give me a simple JavaScript object.
+
 
     // Map unread message counters dynamically using ReadStates
     const enrichedGroups = await Promise.all(
@@ -165,6 +178,115 @@ export const removeMember = async (req, res, next) => {
     });
 
     res.status(200).json({ success: true, message: 'Member removed successfully' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Admin-only: rename the group, change/remove its picture, edit description
+export const updateGroup = async (req, res, next) => {
+  try {
+    const group = await Group.findById(req.params.id);
+    if (!group) {
+      return res.status(404).json({ success: false, message: 'Group not found' });
+    }
+
+    if (!isGroupAdmin(group, req.user._id)) {
+      return res.status(403).json({ success: false, message: 'Action restricted to Group Admins' });
+    }
+
+    const { name, description, removeImage } = req.body;
+    const changes = [];
+
+    if (name !== undefined) {
+      const trimmed = name.trim();
+      if (!trimmed) {
+        return res.status(400).json({ success: false, message: 'Group name cannot be empty' });
+      }
+      if (trimmed !== group.name) {
+        changes.push(`renamed the group from "${group.name}" to "${trimmed}"`);
+        group.name = trimmed;
+      }
+    }
+
+    if (description !== undefined) group.description = description;
+
+    if (removeImage === 'true' || removeImage === true) {
+      if (group.groupImage) changes.push('removed the group photo');
+      group.groupImage = '';
+    }
+
+    if (req.file) {
+      if (!req.file.mimetype.startsWith('image/')) {
+        return res.status(400).json({ success: false, message: 'Group photo must be an image' });
+      }
+      const uploadResult = await uploadToCloudinary(req.file.buffer, req.file.originalname, req.file.mimetype);
+      group.groupImage = uploadResult.url;
+      changes.push('updated the group photo');
+    }
+
+    await group.save();
+
+    if (changes.length > 0) {
+      await Message.create({
+        group: group._id,
+        sender: req.user._id,
+        text: `${req.user.name} ${changes.join(' and ')}.`,
+        messageType: 'system',
+      });
+    }
+
+    res.status(200).json({ success: true, data: await populateGroup(group._id) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Any member can leave. If the owner leaves, ownership passes to an admin (else the longest-standing member).
+// If the last member leaves, the group and its data are deleted.
+export const leaveGroup = async (req, res, next) => {
+  try {
+    const group = await Group.findById(req.params.id);
+    if (!group) {
+      return res.status(404).json({ success: false, message: 'Group not found' });
+    }
+
+    const userId = req.user._id.toString();
+    if (!group.members.some((m) => m.toString() === userId)) {
+      return res.status(400).json({ success: false, message: 'You are not a member of this group' });
+    }
+
+    group.members = group.members.filter((m) => m.toString() !== userId);
+    group.admins = group.admins.filter((a) => a.toString() !== userId);
+
+    if (group.members.length === 0) {
+      await Message.deleteMany({ group: group._id });
+      await ReadState.deleteMany({ group: group._id });
+      await group.deleteOne();
+      return res.status(200).json({ success: true, message: 'You left the group. It was deleted as it had no members.' });
+    }
+
+    let text = `${req.user.name} left the group.`;
+    if (group.owner.toString() === userId) {
+      const nextOwner = group.admins[0] || group.members[0];
+      group.owner = nextOwner;
+      if (!group.admins.some((a) => a.toString() === nextOwner.toString())) {
+        group.admins.push(nextOwner);
+      }
+      text = `${req.user.name} left the group. Ownership was transferred to another member.`;
+    }
+
+    await group.save();
+    await ReadState.deleteOne({ user: req.user._id, group: group._id });
+
+    await Message.create({
+      group: group._id,
+      sender: req.user._id,
+      text,
+      messageType: 'system',
+    });
+
+    res.status(200).json({ success: true, message: 'You left the group' });
   } catch (error) {
     next(error);
   }

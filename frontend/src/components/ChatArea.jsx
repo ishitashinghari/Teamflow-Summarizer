@@ -425,6 +425,7 @@ export default function ChatArea({ activeGroup, onGroupUpdated }) {
         group={activeGroup}
         isOpen={rosterOpen}
         onClose={() => setRosterOpen(false)}
+        onGroupUpdated={onGroupUpdated}
         onMemberRemoved={(groupId, userId) => {
           if (onGroupUpdated) onGroupUpdated();
         }}

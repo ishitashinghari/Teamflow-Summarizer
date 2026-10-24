@@ -55,8 +55,16 @@ export const updateProfile = async (req, res, next) => {
     if (name) user.name = name;
     if (statusMessage !== undefined) user.statusMessage = statusMessage;
 
+    // Multipart bodies arrive as strings, so the flag is the string 'true'
+    if (req.body.removePicture === 'true' || req.body.removePicture === true) {
+      user.profilePicture = '';
+    }
+
     // If an image file was attached, upload it to Cloudinary
     if (req.file) {
+      if (!req.file.mimetype.startsWith('image/')) {
+        return res.status(400).json({ success: false, message: 'Profile picture must be an image' });
+      }
       const uploadResult = await uploadToCloudinary(req.file.buffer, req.file.originalname, req.file.mimetype);
       user.profilePicture = uploadResult.url;
     }

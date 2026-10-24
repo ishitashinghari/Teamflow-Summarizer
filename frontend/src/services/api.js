@@ -35,6 +35,11 @@ export const groupAPI = {
   getGroups: () => API.get('/groups'),
   createGroup: (data) => API.post('/groups', data),
   joinGroup: (inviteCode) => API.post('/groups/join', { inviteCode }),
+  updateGroup: (groupId, formData) =>
+    API.put(`/groups/${groupId}`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+  leaveGroup: (groupId) => API.post(`/groups/${groupId}/leave`),
   removeMember: (groupId, userId) => API.delete(`/groups/${groupId}/members/${userId}`),
 };
 

@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { userAPI } from '../services/api';
-import { X, Check, Mail, Calendar, Camera, User } from 'lucide-react';
+import { X, Check, Mail, Calendar, Camera, User, Trash2 } from 'lucide-react';
 
 export default function ProfileModal({ isOpen, onClose }) {
   const { mongoUser, refreshProfile } = useAuth();
@@ -9,6 +9,7 @@ export default function ProfileModal({ isOpen, onClose }) {
   const [statusMessage, setStatusMessage] = useState(mongoUser?.statusMessage || '');
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState('');
+  const [removePicture, setRemovePicture] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -21,8 +22,18 @@ export default function ProfileModal({ isOpen, onClose }) {
     if (selectedFile) {
       setFile(selectedFile);
       setPreview(URL.createObjectURL(selectedFile));
+      setRemovePicture(false);
     }
   };
+
+  const handleRemovePhoto = () => {
+    setFile(null);
+    setPreview('');
+    setRemovePicture(true);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const hasPhoto = !removePicture && (preview || mongoUser.profilePicture);
 
   const handleUpdate = async (e) => {
     e.preventDefault();
@@ -33,9 +44,13 @@ export default function ProfileModal({ isOpen, onClose }) {
       formData.append('name', name);
       formData.append('statusMessage', statusMessage);
       if (file) formData.append('file', file);
+      if (removePicture) formData.append('removePicture', 'true');
 
       await userAPI.updateProfile(formData);
       await refreshProfile();
+      setFile(null);
+      setPreview('');
+      setRemovePicture(false);
 
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -65,7 +80,7 @@ export default function ProfileModal({ isOpen, onClose }) {
             <img
               src={
                 preview ||
-                mongoUser.profilePicture ||
+                (!removePicture && mongoUser.profilePicture) ||
                 `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(mongoUser.name)}`
               }
               alt={mongoUser.name}
@@ -82,6 +97,11 @@ export default function ProfileModal({ isOpen, onClose }) {
             accept="image/*"
             style={{ display: 'none' }}
           />
+          {hasPhoto && (
+            <button type="button" onClick={handleRemovePhoto} style={styles.removePhotoBtn}>
+              <Trash2 size={13} /> Remove photo
+            </button>
+          )}
           <div style={{ textAlign: 'center', marginTop: '10px' }}>
             <h3 style={styles.name}>{mongoUser.name}</h3>
             <span style={styles.username}>@{mongoUser.username}</span>
@@ -197,6 +217,15 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     transition: 'opacity 0.2s',
+  },
+  removePhotoBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '5px',
+    marginTop: '8px',
+    fontSize: '12px',
+    fontWeight: '600',
+    color: 'var(--accent-danger)',
   },
   name: { fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)' },
   username: { fontSize: '12px', color: 'var(--text-muted)' },

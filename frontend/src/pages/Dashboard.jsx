@@ -20,10 +20,10 @@ export default function Dashboard() {
   const fetchGroups = async () => {
     try {
       const res = await groupAPI.getGroups();
-      setGroups(res.data.data);
-      if (!activeGroup && res.data.data.length > 0) {
-        setActiveGroup(res.data.data[0]);
-      }
+      const fetched = res.data.data;
+      setGroups(fetched);
+      // Refresh the open group with fresh data, or fall back if it was left/deleted
+      setActiveGroup((prev) => fetched.find((g) => g._id === prev?._id) || fetched[0] || null);
     } catch (err) {
       console.error('[Dashboard] Error fetching channels:', err);
     }
