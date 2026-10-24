@@ -3,6 +3,9 @@ import Message from '../models/Message.js';
 import ReadState from '../models/ReadState.js';
 import { generateGroupSummary, executeDirectAIChat } from '../services/aiService.js';
 
+// Upper bound on messages sent to the LLM per summary (keeps prompt size and cost predictable)
+const MAX_SUMMARY_MESSAGES = 250;
+
 export const summarizeUnreadMessages = async (req, res, next) => {
   try {
     const { groupId, localUnreadCount } = req.body;
@@ -18,11 +21,11 @@ export const summarizeUnreadMessages = async (req, res, next) => {
     let unreadMessages = [];
 
     // FIX: If the frontend provides the unread count from before the user entered, use it!
-    const requestedCount = Math.min(parseInt(localUnreadCount, 10) || 0, 100);
+    const requestedCount = Math.min(parseInt(localUnreadCount, 10) || 0, MAX_SUMMARY_MESSAGES);
     if (requestedCount > 0) {
       unreadMessages = await Message.find({ group: groupId })
         .sort({ createdAt: -1 }) // Get the latest messages
-        .limit(requestedCount) // Only grab the amount that were unread (capped at 100)
+        .limit(requestedCount) // Only grab the amount that were unread (capped at MAX_SUMMARY_MESSAGES)
         .populate('sender', 'name username')
         .lean();
       
@@ -38,7 +41,7 @@ export const summarizeUnreadMessages = async (req, res, next) => {
         createdAt: { $gt: sinceDate },
       })
         .sort({ createdAt: 1 })
-        .limit(100)
+        .limit(MAX_SUMMARY_MESSAGES)
         .populate('sender', 'name username')
         .lean();
     }

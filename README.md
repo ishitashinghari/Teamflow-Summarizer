@@ -343,9 +343,9 @@ User clicks "Summarize" (frontend sends its unread count)
        ↓
 TeamFlow Backend verifies group membership
        ↓
-Fetch the latest N messages (N = unread count, capped at 100)
+Fetch the latest N messages (N = unread count, capped at 250)
   — fallback if no count is sent: messages since the user's
-    ReadState.lastReadAt (or the last 7 days), up to 100
+    ReadState.lastReadAt (or the last 7 days), up to 250
        ↓
 Format conversation transcript
        ↓
